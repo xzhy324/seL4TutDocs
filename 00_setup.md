@@ -1,8 +1,8 @@
 # Setup
 
-使用docker构建sel4教程的步骤文档
+在linux上使用docker构建sel4教程的步骤文档，分Docker命令行安装与seL4教程安装两部分。
 
-## Docker Setup
+## Docker CLI Setup
 
 ### 参考
 
@@ -151,6 +151,16 @@ systemctl cat docker | grep '\-\-registry\-mirror'
 
 ## seL4 Tutorial Setup
 
+### 参考
+
+[Tutorials | seL4 docs](https://docs.sel4.systems/Tutorials/)
+
+[Getting Started | seL4 docs](https://docs.sel4.systems/GettingStarted#setting-up-your-machine)
+
+[Host Dependencies | seL4 docs](https://docs.sel4.systems/projects/buildsystem/host-dependencies.html)
+
+[Using Docker for seL4, Camkes, and L4v dependency management | seL4 docs](https://docs.sel4.systems/projects/dockerfiles/)
+
 ### 初始化docker环境
 
 ```bash
@@ -202,15 +212,47 @@ container
 
 将当前目录挂载到容器中的\host并构建运行sel4tutorial docker image
 
-
-
-## 安装Google Repo
+### 安装Google Repo并拉取实验仓库到本地
 
 ```bash
 sudo apt-get update
 sudo apt-get install repo
+cd ~
+mkdir seL4tutorial
+cd seL4tutorial
+#这一步挂代理
+repo init -u https://github.com/seL4/sel4-tutorials-manifest
+repo sync
 ```
 
-## A example workflow
+### 测试hello-world实验
+
+```bash
+you@host:~$ cd ~/seL4tutorial
+#这一步挂代理
+you@host:~/seL4test$ container  # using the bash alias defined above
+you@in-container:/host/$ ./init --tut hello-world
+you@in-container:/host/$ cd hello-world_build
+you@in-container:/host/hello-world_build$ ninja
+you@in-container:/host/hello-world_build$ ./simulate
+```
+
+> ./simulate期望输出
+>
+> SeaBIOS (version 1.14.0-2)
+> ...
+> Booting all finished, dropped to user space
+> Hello, World!
+>
+> ...
+
+退出QEMU：Ctrl-A后松开所有键，再按X 
+
+退出Docker: Ctrl-D
+
+### A Example Workflow
 
 https://docs.sel4.systems/projects/dockerfiles/#:~:text=An%20example%20workflow%3A
+
+
+
