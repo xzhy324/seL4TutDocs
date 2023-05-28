@@ -105,8 +105,6 @@ All [CNode invocations](https://docs.sel4.systems/projects/sel4/api-doc.html#sel
 
 The root task has a CSpace, set up by seL4 during boot, which contains capabilities to all resources manages by seL4. We have already seen several capabilities in the root CSpace: `seL4_CapInitThreadTCB`, and `seL4_CapInitThreadCNode`. Both of these are specified by constants in `libsel4`, however not all initial capabilities are statically specified. Other capabilities are described by the `seL4_BootInfo` data structure, described in `libsel4` and initialised by seL4. `seL4_BootInfo` describes ranges of initial capabilities, including free slots available in the initial CSpace.
 
-
-
 ## Notes
 
 #### Capability
@@ -125,9 +123,7 @@ CSpace (capability-space) 是线程拥有的capability的集合，由一个或�
 
 **CSpace addressing**
 
-To refer to a capability and perform operations on it, you must *address* the capability. There are two ways to address capabilities in the seL4 API. First is by invocation（由调用者自身隐式给出cap）, the second is by direct addressing（直接指定cap）. 
-
-
+To refer to a capability and perform operations on it, you must *address* the capability. There are two ways to address capabilities in the seL4 API. First is by invocation（由调用者自身隐式给出cap）, the second is by direct addressing（直接指定cap）.
 
 ## Code
 
@@ -170,6 +166,10 @@ int main(int argc, char *argv[]) {
     // DONE TODO delete the created TCB capabilities
     error = seL4_CNode_Delete(seL4_CapInitThreadCNode, first_free_slot, seL4_WordBits);
     error = seL4_CNode_Delete(seL4_CapInitThreadCNode, last_slot, seL4_WordBits);
+    //This can be done in either way: 
+    //seL4_CNode_Delete: Delete a capability
+    //seL4_CNode_Revoke: Delete all child capabilities of a capability
+    //    =>seL4_CNode_Revoke(seL4_CapInitThreadCNode, seL4_CapInitThreadTCB, seL4_WordBits);
 
     // check first_free_slot is empty
     error = seL4_CNode_Move(seL4_CapInitThreadCNode, first_free_slot, seL4_WordBits,
@@ -189,8 +189,6 @@ int main(int argc, char *argv[]) {
     return 0;
 }
 ```
-
-
 
 ## Ref
 
