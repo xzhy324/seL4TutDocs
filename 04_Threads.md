@@ -35,19 +35,19 @@ TCBs contain the following information:
 - endpoint capability to send fault messages to,
 - and the reply capability slot.
 
-### Scheduling model
+### seL4的线程调度模型
 
-The seL4 scheduler chooses the next thread to run on a specific processing core, and is a **priority-based FIFO round-robin scheduler**. The scheduler picks threads that are runnable: that is, resumed, and not blocked on any IPC operation.
+The seL4 scheduler chooses the next thread to run on a specific processing core, and is a **priority-based round-robin scheduler（基于优先级的时间片轮转调度）**. The scheduler picks threads that are runnable: that is, resumed, and not blocked on any IPC operation.
 
 #### Priorities
 
 The scheduler picks the highest-priority, runnable thread. seL4 provides a priority range of 0-255, where 255 is the maximum priority (encoded in `libsel4` as `seL4_MinPrio` and `seL4_MaxPrio`).
 
-TCBs also have a *maximum control priority* (MCP), which acts as an informal capability over priorities. When setting the priority of a TCB, an explicit TCB capability must be provided to derive the authority from to set the priority. The priority being set is checked against the authority TCB's MCP and the target priority is greater, the operation fails. The root task starts with both priority and MCP set to `seL4_MaxPrio`.
+TCBs also have a *maximum control priority* (MCP), which acts as an informal capability over priorities. When setting the priority of a TCB, an explicit TCB capability must be provided to derive the authority from to set the priority. The priority being set is checked against the authority TCB's MCP and the target priority is greater, the operation fails. The root task starts with both priority and MCP set to `seL4_MaxPrio`.对目标线程优先级的修改不能超过修改这自身的优先级
 
 #### Round robin
 
-When multiple TCBs are runnable and have the same priority, they are scheduled in a first-in, first-out round-robin fashion. In more detail, kernel time is accounted for in fixed-time quanta referred to as ticks, and each TCB has a timeslice field which represents the number of ticks that TCB is eligible to execute until preempted. The kernel timer driver is configured to fire a periodic interrupt which marks each tick, and when the timeslice is exhausted round robin scheduling is applied. Threads can surrender their current timeslice using the `seL4_Yield` system call.
+When multiple TCBs are runnable and have the same priority, they are scheduled in a first-in, first-out round-robin fashion. In more detail, kernel time is accounted for in fixed-time quanta referred to as ticks, and each TCB has a timeslice field which represents the number of ticks that TCB is eligible to execute until preempted. The kernel timer driver is configured to fire a periodic interrupt which marks each tick, and when the timeslice is exhausted round robin scheduling is applied. Threads can surrender their current timeslice using the `seL4_Yield` system call.相同优先级的线程按时间片循环执行  
 
 #### [Domain scheduling](#Ref)
 
@@ -75,12 +75,41 @@ seL4 threads are configured by [invocations on the TCB object](https://docs.sel4
 1. allocate a untyped mem to tcb object
 2. configure the TCB to have the same CSpace and VSpace as the current thread
 3. Change priority via `seL4_TCB_SetPriority`
-4. Set initial register state
+4. Set initial register state 设置线程上下文
+   1. 设置PC指针
+   2. 设置栈顶指针
+   3. 设置函数调用参数（依据体系结构约定在栈or寄存器中）
+
 5. Start the thread
 6. Try to pass the arguments either by setting contexts or manipulating registers directly.
+   1. 使用sel4对于特定寄存器修改的接口
+   2. 直接修改整个寄存器上下文
+
 7. Resolving a fault
+   1. 构造一个二级函数以及全局数据，将函数指针和该数据的引用用于new_thread函数的参数输入。
+      1. 问题，参数为什么要使用指针的方式传给寄存器上下文？（猜测是因为x86的参数调用约定，寄存器间接寻址
+
 
 ## API
+
+### seL4_Untyped_Retype
+
+```
+static inline int seL4_Untyped_Retype
+```
+
+Retype an untyped object
+
+| Type           | Name          | Description                                                  |
+| :------------- | :------------ | :----------------------------------------------------------- |
+| `seL4_Untyped` | `_service`    | CPTR to an untyped object.                                   |
+| `seL4_Word`    | `type`        | The seL4 object type that we are retyping to.                |
+| `seL4_Word`    | `size_bits`   | Used to determine the size of variable-sized objects.        |
+| `seL4_CNode`   | `root`        | CPTR to the CNode at the root of the destination CSpace.     |
+| `seL4_Word`    | `node_index`  | CPTR to the destination CNode. Resolved relative to the root parameter. |
+| `seL4_Word`    | `node_depth`  | Number of bits of node_index to translate when addressing the destination CNode. |
+| `seL4_Word`    | `node_offset` | Number of slots into the node at which capabilities start being placed. |
+| `seL4_Word`    | `num_objects` | Number of capabilities to create.                            |
 
 ### seL4_TCB_Configure
 
@@ -137,6 +166,8 @@ Set a thread’s registers to the first `count` fields of a given seL4_UserConte
 
 
 
+
+
 ## Code Answer
 
 ```c
@@ -155,7 +186,6 @@ extern seL4_CPtr root_vspace;
 // TCB of the current thread
 extern seL4_CPtr root_tcb;
 // Untyped object large enough to create a new TCB object
-
 extern seL4_CPtr tcb_untyped;
 extern seL4_CPtr buf2_frame_cap;
 extern const char buf2_frame[4096];
@@ -174,15 +204,16 @@ static const uintptr_t tcb_stack_top = (const uintptr_t)&tcb_stack_base + sizeof
 int new_thread(void *arg1, void *arg2, void *arg3) {
     printf("Hello2: arg1 %p, arg2 %p, arg3 %p\n", arg1, arg2, arg3);
     void (*func)(int) = arg1;
-    func(*(int *)arg2);
+    func(*((int *)arg2));
     while(1);
 }
 
-int my_func(int arg){
-    printf("in my func: %d!\n",arg);
+int my_func(int arg) {
+    printf("Hello3: arg %d\n", arg);
     return 0;
 }
-int my_data = 789;
+
+int global_func_data = 79879;
 
 int main(int c, char* arbv[]) {
 
@@ -190,18 +221,12 @@ int main(int c, char* arbv[]) {
 
     seL4_DebugDumpScheduler();
 
-    // DONE fix the parameters in this invocation
+    //  Done fix the parameters in this invocation
     seL4_Error result = seL4_Untyped_Retype(tcb_untyped, seL4_TCBObject, seL4_TCBBits, root_cnode, 0, 0, tcb_cap_slot, 1);
     ZF_LOGF_IF(result, "Failed to retype thread: %d", result);
     seL4_DebugDumpScheduler();
 
-
-    /* Exercise Now that you have a TCB object, configure it to have the same CSpace and VSpace 
-     * as the current thread. Use the IPC buffer we have provided, but don't set a fault handler,
-     * as the kernel will print any fault we receive with a debug build.
-     */
-
-    // DONE fix the parameters in this invocation
+    //DONE fix the parameters in this invocation
     result = seL4_TCB_Configure(tcb_cap_slot, seL4_CapNull, root_cnode, 0, root_vspace, 0, (seL4_Word)thread_ipc_buff_sym, tcb_ipc_frame);
     ZF_LOGF_IF(result, "Failed to configure thread: %d", result);
 
@@ -215,17 +240,24 @@ int main(int c, char* arbv[]) {
     int error = seL4_TCB_ReadRegisters(tcb_cap_slot, 0, 0, sizeof(regs)/sizeof(seL4_Word), &regs);
     ZF_LOGF_IFERR(error, "Failed to read the new thread's register set.\n");
 
-    // DONE use valid instruction pointer
-    sel4utils_set_instruction_pointer(&regs, (seL4_Word)&new_thread);
-    // DONE use valid stack pointer
-    sel4utils_set_stack_pointer(&regs, tcb_stack_top);
-    // DONE fix parameters to this invocation
+    /*Way1: 分别设置每一个寄存器*/
+    // // DONE use valid instruction pointer
+    // sel4utils_set_instruction_pointer(&regs, (seL4_Word)new_thread);
+    // // DONE use valid stack pointer
+    // sel4utils_set_stack_pointer(&regs, (seL4_Word)tcb_stack_top);
+    // // DONE fix parameters to this invocation
+    // error = seL4_TCB_WriteRegisters(tcb_cap_slot, 0, 0, sizeof(regs)/sizeof(seL4_Word), &regs);
 
+    /*Way2： 一次性更新多个寄存器*/
     sel4utils_arch_init_local_context((void*)new_thread,
-                                  (void *)my_func, (void *)&my_data, (void *)3,
-                                  (void *)tcb_stack_top, &regs);
-
+                                  (void *)my_func, (void *)&global_func_data, (void *)9485723945872934578,
+                                  (void *)tcb_stack_top, &regs); //注意这里根据教程所提供的new_thread函数,构造了一个二级调用函数和数据供解引用
     error = seL4_TCB_WriteRegisters(tcb_cap_slot, 0, 0, sizeof(regs)/sizeof(seL4_Word), &regs);
+
+    /*Way3: 直接按照体系结构约定修改regs数组*/
+    // 略
+
+
     ZF_LOGF_IFERR(error, "Failed to write the new thread's register set.\n"
                   "\tDid you write the correct number of registers? See arg4.\n");
     seL4_DebugDumpScheduler();
