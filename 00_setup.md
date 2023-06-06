@@ -215,8 +215,11 @@ container
 ### 安装Google Repo并拉取实验仓库到本地
 
 ```bash
-sudo apt-get update
-sudo apt-get install repo
+git clone https://gerrit-googlesource.lug.ustc.edu.cn/git-repo
+mkdir ~/bin
+cp ./git-repo/repo ~/bin/
+PATH=~/bin:$PATH
+export REPO_URL='https://mirrors.tuna.tsinghua.edu.cn/git/git-repo'
 cd ~
 mkdir seL4tutorial
 cd seL4tutorial
