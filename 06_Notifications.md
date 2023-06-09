@@ -60,39 +60,41 @@ notification机制允许进程之间异步的发送信号，主要用于中断�
 
 通过notification构造信号量，
 
-一个可能的实现：
+一个可能的实现：[Show how counting semaphores can be implemented using only binary semaphores and ordinary machine instructions? - Stack Overflow](https://stackoverflow.com/questions/15117155/show-how-counting-semaphores-can-be-implemented-using-only-binary-semaphores-and/25220708#25220708)
 
 ```c
 typedef struct {
     seL4_Word count;
-    seL4_CPtr notification;//相当于读写互斥锁
+    seL4_CPtr count_mutex;//相当于读写互斥锁
+    seL4_CPtr critical_mutex;
 } semaphore_t;
 
-void semaphore_init(semaphore_t *sem, seL4_Word initial ,seL4_CPtr ntfn) {
+void semaphore_init(semaphore_t *sem, seL4_Word initial ,seL4_CPtr count_mutex,seL4_CPtr critical_mutex) {
     sem->count = initial;
-    //printf("inserting!!!\n");
-    sem->notification = ntfn;
-    /* error checking omitted */
-    if(initial > 0) {
-        seL4_Signal(sem->notification);
-    }
+    sem->count_mutex = count_mutex;
+    seL4_CPtr critical_mutex = critical_mutex;
+    seL_Signal(sem->count_mutex);
 }
 
 void semaphore_wait(semaphore_t *sem, seL4_Word* badge) {
-    //printf("waiting!!!\n");
-    seL4_Wait(sem->notification, badge);
+    seL4_Wait(sem->count_mutex, NULL);
     sem->count--;
-    printf("wait:count: %d\n", sem->count);
-    if (sem->count > 0) {
-        seL4_Signal(sem->notification);
+    if (sem->count < 0) {
+        seL4_Signal(sem->count_mutex);	
+        seL4_Wait(sem->critical_mutex, badge);
+    } else {
+        seL4_Signal(sem->count_mutex);
     }
 }
 
 void semaphore_signal(semaphore_t *sem) {
-    //printf("signaling!!!\n");
+    seL4_Wait(sem->count_mutex, NULL);
     sem->count++;
-    if (sem->count >= 1) {
-        seL4_Signal(sem->notification);
+    if (sem->count >= 0) {
+        seL4_Signal(sem->count_mutex);
+        seL4_Signal(sem->critical_mutex);
+    } else {
+        seL4_Signal(sem->count_mutex);
     }
 }
 ```
