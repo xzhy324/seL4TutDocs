@@ -194,6 +194,17 @@ ENV HTTPS_PROXY "http://172.17.0.1:7890"
 
 
 
+另外，还可以在apt-get命令前进行换源操作来加速访问，对extras.Dockerfile的修改如下：
+
+在run apt-get命令前增加如下命令：
+
+```dockerfile
+RUN cp /etc/apt/sources.list /etc/apt/sources.list.backup  # 备份当前源列表文件
+RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list  # 将国内访问缓慢的deb.debian.org替换为mirrors.aliyun.com
+```
+
+
+
 ### [optional] 将当前目录开启容器操作绑定为shell快捷指令
 
 ```bash
