@@ -104,6 +104,8 @@ void semaphore_signal(semaphore_t *sem) {
 ## code answer
 
 ```c
+
+
 #include <assert.h>
 #include <sel4/sel4.h>
 #include <stdio.h>
@@ -139,57 +141,68 @@ int main(int c, char *argv[]) {
     
     /* set up shared memory for consumer 1 */
     /* first duplicate the cap */
+    //以当前进程的CNode权限，将得到的buf1_frame_cap复制到当前进程的CNode中，复制后的cap放在mapping_1这个slot中
     error = seL4_CNode_Copy(cnode, mapping_1, seL4_WordBits, 
                           cnode, buf1_frame_cap, seL4_WordBits, seL4_AllRights);
     ZF_LOGF_IFERR(error, "Failed to copy cap");
     /* now do the mapping */
-    error = seL4_ARCH_Page_Map(mapping_1, producer_1_vspace, BUF_VADDR, 
+    // 将mapping_1这个slot中的cap映射到一号生产者的vspace中的BUF_VADDR这个虚拟地址上
+    error = seL4_ARCH_Page_Map(buf1_frame_cap, producer_1_vspace, BUF_VADDR, 
                                seL4_AllRights, seL4_ARCH_Default_VMAttributes);
     ZF_LOGF_IFERR(error, "Failed to map frame");
     
     // DONE share buf2_frame_cap with producer_2
+    //重复上述工作即可
     error = seL4_CNode_Copy(cnode, mapping_2, seL4_WordBits, 
                           cnode, buf2_frame_cap, seL4_WordBits, seL4_AllRights);
     error = seL4_ARCH_Page_Map(mapping_2, producer_2_vspace, BUF_VADDR, 
                                seL4_AllRights, seL4_ARCH_Default_VMAttributes);
 
     /* send IPCs with the buffer address to both producers */
+    // 利用IPC机制通知生产者映射的虚拟地址
+    // 由于两个生产者都在同一个ep的另一端上排队，因此需要重复通知两次
     seL4_SetMR(0, BUF_VADDR);
     seL4_Send(endpoint, seL4_MessageInfo_new(0, 0, 0, 1));
     seL4_SetMR(0, BUF_VADDR);
     seL4_Send(endpoint, seL4_MessageInfo_new(0, 0, 0, 1));
     
     /* start single buffer producer consumer */
+    //疑问：为什么可以直接访问这一段虚拟内存地址？是因为在camkes阶段已经映射到虚拟内存空间中了嘛？
+    //解答： 这一段内存地址是位于consumer空间中的，当然可以直接访问
     volatile long *buf1 = (long *) buf1_frame;
     volatile long *buf2 = (long *) buf2_frame;
 
-    *buf1 = 0;//置零表示的语义是当前缓冲区为空
+    *buf1 = 0;
     *buf2 = 0;
 
     
-    // DONE signal both producers
+    // TODO signal both producers
     seL4_Signal(buf1_empty);
     seL4_Signal(buf2_empty);
-
     printf("Waiting for producer\n");
+
+    //人为引入时间延迟
+    int j=0;
+    for (int i=0;i<100000;++i){
+        j++;
+    }   
+    printf("j++:%d\n",j);
 
     for (int i = 0; i < 10; i++) {
         seL4_Wait(full, &badge);
         printf("Got badge: %lx\n", badge);
         
-    // DONE, use the badge to check which producer has signalled you, and signal it back. Note that you 
+    // TODO, use the badge to check which producer has signalled you, and signal it back. Note that you 
     // may recieve more than 1 signal at a time.
-    //注意badge是按位有效，一次性有多个signal时，会对当前notification的数据字段按位或，所以解析的时候要用按位与
-        if (badge & 0b01) {
-            printf("buf1: %ld\n", *buf1);
+        printf("Got badge: %lx\n", badge);
+        if(badge & 0b01) {
+            //printf("Got badge from producer 1\n");
             seL4_Signal(buf1_empty);
-            *buf1 = 0;
         }
         if (badge & 0b10) {
-            printf("buf2: %ld\n", *buf2);
-            seL4_Signal(buf2_empty);   
-            *buf2 = 0;
-        } 
+            //printf("Got badge from producer 2\n");
+            seL4_Signal(buf2_empty);
+        }
    }
 
     printf("Success!\n");
